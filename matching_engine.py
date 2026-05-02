@@ -404,11 +404,37 @@ def recommend(
     
     dong_matrix = dong_vector_df[w_cols].to_numpy()
     
-    # 4) 예산 필터 (단계 3) — Day 7 이후 활성화
+# 4) 예산 필터 (단계 3) — Day 7 이후 활성화
     valid_mask = np.ones(len(dong_vector_df), dtype=bool)
     if budget_filter:
-        # placeholder: Day 7 dong_value_estimate.csv 연동 필요
-        pass
+        # ✅ Phase 7 Value Estimator 활성화
+        try:
+            from value_estimator import (
+                load_value_predictions,
+                apply_budget_filter as ve_apply_budget_filter,
+            )
+            value_df = load_value_predictions()
+            if value_df is not None and len(value_df) > 0:
+                all_codes = dong_vector_df["DISTRICT_CODE"].astype(str).tolist()
+                passed_codes = ve_apply_budget_filter(
+                    all_codes,
+                    value_df,
+                    budget_min_billion=budget_filter.get("min_billion", 0),
+                    budget_max_billion=budget_filter.get("max_billion", 100),
+                    pyeong=budget_filter.get("pyeong", 30),
+                    use_lower_ci=budget_filter.get("use_lower_ci", True),
+                )
+                passed_set = set(passed_codes)
+                valid_mask = np.array([
+                    str(c) in passed_set
+                    for c in dong_vector_df["DISTRICT_CODE"]
+                ])
+        except Exception as e:
+            # Value Estimator 모듈 없거나 데이터 누락 시 필터링 스킵
+            print(f"[matching_engine] Budget filter skipped: {e}")
+            valid_mask = np.ones(len(dong_vector_df), dtype=bool)
+
+    # 5) 코사인 Top N (다양성 적용 시 여유분 확보)
     
     # 5) 코사인 Top N (다양성 적용 시 여유분 확보)
     pool_n = n * 4 if enforce_diversity else n
