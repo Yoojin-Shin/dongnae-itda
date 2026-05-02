@@ -21,7 +21,13 @@ from household_templates import HOUSEHOLD_TEMPLATES, list_templates
 from priority_groups import PRIORITY_GROUPS, list_groups
 from data_loader import load_data, get_feature_list_and_weights
 from matching_engine import recommend, similar_dong, DNA_LABELS
-
+from value_estimator import (
+    load_value_predictions,
+    get_value_for_dong,
+    get_confidence_metadata,
+    load_model_info,
+    get_value_summary,
+)
 
 # ============================================================================
 # 페이지 설정
@@ -169,18 +175,78 @@ st.divider()
 
 
 # ============================================================================
-# 단계 3: 예산 (Day 7 후 활성화)
+# 단계 3: 예산 필터 (Phase 7 Value Estimator 활성화 v2.0)
 # ============================================================================
-with st.expander("단계 3 · 예산 필터 (선택, Day 7 Value Estimator 후 활성화)"):
-    st.caption("⏸ Day 7 LightGBM 학습 완료 후 사용 가능. 현재는 placeholder.")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.slider("매매 예산 (억원)", 5, 50, (10, 25), disabled=True)
-    with col_b:
-        st.slider("전세 예산 (억원)", 1, 20, (3, 10), disabled=True)
+
+# 적정가 데이터 로드 (캐시)
+@st.cache_data
+def cached_load_value_predictions():
+    return load_value_predictions()
+
+value_df = cached_load_value_predictions()
+
+st.subheader("단계 3 · 예산 필터 (선택)")
+
+if value_df is None:
+    st.warning("⏸ data/dong_value_predictions.csv 누락 — 예산 필터 비활성화")
+    budget_filter = None
+else:
+    model_info = load_model_info()
+    test_metrics = model_info.get("test_metrics", {})
+    
+    with st.expander("💡 예산으로 동네 필터링 (선택)", expanded=False):
+        st.caption(
+            f"LightGBM 모델 (R²={test_metrics.get('R2', 0.928):.3f}, "
+            f"MAPE={test_metrics.get('MAPE', 5.57)}%) 기반 "
+            f"118개 동 적정가 적용"
+        )
+        
+        use_budget = st.checkbox("예산 필터 사용", value=False, key="use_budget_v2")
+        
+        col_a, col_b, col_c = st.columns([2, 2, 1])
+        with col_a:
+            budget_buy = st.slider(
+                "매매 예산 (억원)",
+                3, 50, (10, 25),
+                disabled=not use_budget,
+                key="budget_buy_v2",
+                help="30평 기준 매매 예산 범위",
+            )
+        with col_b:
+            ci_strict = st.checkbox(
+                "보수적 필터 (95% CI 하한 사용)",
+                value=True,
+                disabled=not use_budget,
+                key="ci_strict_v2",
+                help="체크 시: 동의 95% CI 하한이 예산 내에 들어가야 통과 (보수적)",
+            )
+        with col_c:
+            pyeong = st.number_input(
+                "평수",
+                10, 80, 30,
+                disabled=not use_budget,
+                key="pyeong_v2",
+            )
+        
+        if use_budget:
+            st.info(
+                f"💰 **{budget_buy[0]}~{budget_buy[1]}억원** 범위, "
+                f"**{pyeong}평** 기준, "
+                f"{'95% CI 하한' if ci_strict else '점추정'} 사용"
+            )
+    
+    # budget_filter dict 구성
+    if use_budget:
+        budget_filter = {
+            "min_billion": float(budget_buy[0]),
+            "max_billion": float(budget_buy[1]),
+            "pyeong": int(pyeong),
+            "use_lower_ci": bool(ci_strict),
+        }
+    else:
+        budget_filter = None
 
 st.divider()
-
 
 # ============================================================================
 # 단계 4: 세부 슬라이더
@@ -319,13 +385,56 @@ if "last_result" in st.session_state:
                         for line in c["explanations_kor"]:
                             st.markdown(f"- {line}")
 
-            with col_score:
+with col_score:
                 st.metric(
                     label="매칭도",
                     value=f"{c['match_pct']:.1f}%",
                 )
-
-                # 비슷한 동 보기 버튼 (toggle 방식)
+            
+            # ✅ Phase 7: 적정가 정보 표시
+            if value_df is not None:
+                value_info = get_value_for_dong(c["district_code"], value_df)
+                if value_info is not None:
+                    conf_meta = get_confidence_metadata(value_info["confidence"])
+                    
+                    st.divider()
+                    
+                    col_v1, col_v2, col_v3 = st.columns([2, 2, 1])
+                    with col_v1:
+                        st.metric(
+                            "💰 적정 시세",
+                            f"{value_info['point']:,.0f}만원/평",
+                            help=f"{value_info.get('cohort', '')} 코호트",
+                        )
+                        st.caption(
+                            f"30평 ≈ **{value_info['price_30py_billion']:.1f}억원**"
+                        )
+                    with col_v2:
+                        st.metric(
+                            "95% 신뢰구간",
+                            f"{value_info['lower_30py_billion']:.1f}~"
+                            f"{value_info['upper_30py_billion']:.1f}억",
+                        )
+                        st.caption(f"폭 {value_info['ci_width_pct']:.1f}%")
+                    with col_v3:
+                        st.markdown(
+                            f"<div style='text-align:center; padding:0.5rem; "
+                            f"border-radius:0.5rem; background:{conf_meta['color']}20'>"
+                            f"<div style='font-size:1.5rem'>{conf_meta['icon']}</div>"
+                            f"<div style='font-size:0.8rem; color:{conf_meta['color']}; "
+                            f"font-weight:bold'>{conf_meta['label']}</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                    
+                    # 신뢰도 낮은 경우 경고
+                    if value_info["confidence"] in ["LOW", "EXTRAPOLATION"]:
+                        st.warning(
+                            f"{conf_meta['icon']} **{conf_meta['message']}** "
+                            f"({value_info.get('usage_guide', '')})"
+                        )
+            
+            # 비슷한 동 보기 버튼 (toggle 방식)
                 button_key = f"sim_btn_{c['district_code']}"
                 state_key = f"show_similar_{c['district_code']}"
 
