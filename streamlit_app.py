@@ -385,7 +385,7 @@ if "last_result" in st.session_state:
                         for line in c["explanations_kor"]:
                             st.markdown(f"- {line}")
 
-with col_score:
+            with col_score:
                 st.metric(
                     label="매칭도",
                     value=f"{c['match_pct']:.1f}%",
