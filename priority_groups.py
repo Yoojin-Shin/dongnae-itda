@@ -14,7 +14,7 @@ Day 7 진입 직전 (2026-04-26 기준)
   6. 매핑 정당성: 각 변수의 source = (Day 5 ANOVA | Day 6 클러스터 시그널)
 
 가중치 적용 공식 (handoff §"단계 2"):
-    PRIORITY_WEIGHTS = {1: 1.5, 2: 1.0, 3: 0.5}
+    PRIORITY_WEIGHTS = {1: 1.0, 2: 0.6, 3: 0.3}
     for rank, label in enumerate(user_priorities, 1):
         multiplier = PRIORITY_WEIGHTS[rank]
         for var, val in PRIORITY_GROUPS[label]["weights"].items():
@@ -226,9 +226,9 @@ PRIORITY_GROUPS: Dict[str, Dict[str, Any]] = {
 # 가중치 적용 공식 (handoff §"단계 2 가중치 적용")
 # ============================================================================
 PRIORITY_WEIGHTS: Dict[int, float] = {
-    1: 1.5,   # 1순위: 1.5×
-    2: 1.0,   # 2순위: 1.0×
-    3: 0.5,   # 3순위: 0.5×
+    1: 1.0,   # 1순위: 1.0×
+    2: 0.6,   # 2순위: 0.6×
+    3: 0.3,   # 3순위: 0.3×
 }
 
 # V3 가중치 카테고리 (handoff §"DONG_FEATURE_WEIGHTS_V3" 기반)
